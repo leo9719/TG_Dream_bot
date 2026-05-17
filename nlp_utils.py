@@ -3,62 +3,64 @@
 
 import re
 import spacy
-from nltk.corpus import stopwords
 import nltk
+from nltk.corpus import stopwords
 
-# Загрузка необходимых ресурсов NLTK (для стоп-слов)
-nltk.download('stopwords')
+# Загрузка стоп-слов NLTK
+nltk.download('stopwords', quiet=True)
 
-# Загрузка модели spaCy для русского языка
-try:
-    nlp = spacy.load("ru_core_news_sm")
-except OSError:
-    raise RuntimeError(
-        "Модель 'ru_core_news_sm' не найдена. Установите её командой: "
-        "python -m spacy download ru_core_news_sm"
-    )
+# Глобальная переменная для модели spaCy (ленивая загрузка)
+nlp = None
 
-# Дополнительные стоп-слова
+def load_spacy():
+    """Загружает модель spaCy (один раз)"""
+    global nlp
+    if nlp is None:
+        try:
+            nlp = spacy.load("ru_core_news_sm")
+        except OSError:
+            print("Скачиваем модель spaCy ru_core_news_sm...")
+            import subprocess
+            subprocess.run(["python", "-m", "spacy", "download", "ru_core_news_sm"], check=True)
+            nlp = spacy.load("ru_core_news_sm")
+    return nlp
+
+
+# Дополнительные русские стоп-слова
 russian_stopwords = stopwords.words('russian') + [
-    'я', 'ты', 'он', 'она', 'мы', 'вы', 'они', 'это', 'весь', 'свой'
+    'я', 'ты', 'он', 'она', 'мы', 'вы', 'они', 'это', 'весь', 'свой',
+    'быть', 'что', 'который', 'тот', 'такой', 'как', 'по', 'для'
 ]
 
 def extract_keywords(text: str, top_n: int = 5) -> list:
     """
-    Извлекает ключевые слова из текста с использованием spaCy.
-    Возвращает список лемм (нормальных форм слов).
-
-    Параметры:
-        text (str): Текст для анализа.
-        top_n (int): Количество возвращаемых ключевых слов.
-
-    Возвращает:
-        list: Список ключевых слов (лемм).
+    Извлекает ключевые слова из текста сна.
     """
-    # Предварительная очистка текста
-    text = re.sub(r'[^\w\s]', ' ', text.lower())
-    
-    # Обработка текста spaCy
-    doc = nlp(text)
-    
-    keywords = []
-    seen_lemmas = set()
-    
-    for token in doc:
-        # Пропускаем стоп-слова, знаки препинания и короткие слова
-        if (token.is_alpha 
-            and not token.is_stop 
-            and len(token.text) > 2
-            and token.lemma_ not in russian_stopwords):
-            
-            lemma = token.lemma_
-            if lemma not in seen_lemmas:
-                seen_lemmas.add(lemma)
-                keywords.append(lemma)
-                
-                if len(keywords) >= top_n:
-                    break
-    
-    return keywords
+    if not text or len(text.strip()) < 3:
+        return []
 
-# Пример использования (для тестировани
+    # Очистка текста
+    text = re.sub(r'[^\w\s]', ' ', text.lower())
+
+    # Загружаем модель
+    nlp_model = load_spacy()
+    doc = nlp_model(text)
+
+    keywords = []
+    seen = set()
+
+    for token in doc:
+        lemma = token.lemma_.strip()
+        if (token.is_alpha and 
+            len(lemma) > 2 and 
+            not token.is_stop and 
+            lemma not in russian_stopwords and
+            lemma not in seen):
+            
+            seen.add(lemma)
+            keywords.append(lemma)
+            
+            if len(keywords) >= top_n:
+                break
+
+    return keywords
