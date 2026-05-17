@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sys
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -10,20 +11,24 @@ from groq import Groq
 TOKEN = os.getenv("TOKEN")
 GROQ_API_KEY = "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"
 
-MODEL = "llama-3.3-70b-versatile"   # Отличная модель на Groq
+MODEL = "llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT = """
-Ты — мудрый, эмпатичный и глубокий толкователь снов.
-Отвечай интересно, с душой, но не слишком длинно (6–8 предложений).
-Используй эмодзи умеренно.
-Если деталей мало — задай 1–2 уточняющих вопроса.
+Ты — мудрый и empathetic толкователь снов. 
+Отвечай интересно, но не длинно (6-8 предложений).
+Эмодзи используй умеренно.
 """
 
-# Хранилище данных пользователя
-user_data = {}  # {chat_id: {"mode": "waiting"|"dream_mode", "history": [...] }}
+user_data = {}   # {chat_id: {"mode": "...", "history": [...] }}
 
-logging.basicConfig(level=logging.INFO)
+# Принудительное логирование
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    stream=sys.stdout
+)
 logger = logging.getLogger(__name__)
+logger.info("🚀 Бот начал запуск...")
 
 client = Groq(api_key=GROQ_API_KEY)
 
@@ -31,26 +36,24 @@ client = Groq(api_key=GROQ_API_KEY)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_data[chat_id] = {"mode": "waiting", "history": []}
-
+    logger.info(f"Новый пользователь: {chat_id}")
     await update.message.reply_text(
         "👋 Привет! Я толкователь снов.\n\n"
-        "Расскажи свой сон как можно подробнее, и я помогу его разобрать ✨\n"
-        "После первого ответа можешь задавать любые вопросы по нему."
+        "Расскажи свой сон подробно ✨\n"
+        "После толкования можешь задавать вопросы по нему."
     )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     text = update.message.text.strip()
-
-    if chat_id not in user_data:
-        user_data[chat_id] = {"mode": "waiting", "history": []}
+    logger.info(f"Сообщение от {chat_id}: {text[:100]}...")
 
     await update.message.chat.send_action("typing")
 
     try:
-        if user_data[chat_id]["mode"] == "waiting":
-            # Первый сон
+        if user_data.get(chat_id, {}).get("mode") == "waiting" or chat_id not in user_data:
+            # Новый сон
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"Расскажи сон: {text}"}
@@ -64,17 +67,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             answer = response.choices[0].message.content
 
-            user_data[chat_id]["history"] = messages + [{"role": "assistant", "content": answer}]
-            user_data[chat_id]["mode"] = "dream_mode"
+            user_data[chat_id] = {
+                "mode": "dream_mode",
+                "history": messages + [{"role": "assistant", "content": answer}]
+            }
 
             await update.message.reply_text(
                 answer + "\n\n"
-                "Теперь можешь задавать любые уточняющие вопросы по этому сну.\n"
-                "Чтобы начать новый сон — напиши /new"
+                "Теперь можешь задавать вопросы по этому сну.\n"
+                "/new — начать новый сон"
             )
 
         else:
-            # Продолжение разговора по сну
+            # Продолжение чата
             user_data[chat_id]["history"].append({"role": "user", "content": text})
 
             response = client.chat.completions.create(
@@ -86,28 +91,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             answer = response.choices[0].message.content
 
             user_data[chat_id]["history"].append({"role": "assistant", "content": answer})
-
             await update.message.reply_text(answer)
 
+        logger.info("Ответ отправлен успешно")
+
     except Exception as e:
-        logger.error(f"Ошибка Groq: {e}")
-        await update.message.reply_text("😔 Сейчас слишком много запросов. Подожди 10–15 секунд и попробуй снова.")
+        logger.error(f"ОШИБКА: {e}", exc_info=True)
+        await update.message.reply_text("😔 Слишком много запросов. Подожди 10 секунд и попробуй снова.")
 
 
 async def new_dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_data[chat_id] = {"mode": "waiting", "history": []}
-    await update.message.reply_text("🆕 Новый сон! Расскажи, что тебе приснилось ✨")
+    await update.message.reply_text("🆕 Новый сон активирован! Расскажи, что приснилось ✨")
 
 
 def main():
+    logger.info("Запуск Application...")
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("new", new_dream))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("🚀 Бот-толкователь снов на Groq запущен!")
+    logger.info("Бот успешно запущен и ожидает сообщений!")
     app.run_polling()
 
 
