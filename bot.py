@@ -10,9 +10,9 @@ from openai import OpenAI, APIError, RateLimitError
 
 # ========================= НАСТРОЙКИ =========================
 TOKEN = os.getenv("TOKEN")
-DEEPSEEK_API_KEY = "sk-02d861ee80d649efa40e69d0e771b4fc"   # ← Твой новый ключ
+DEEPSEEK_API_KEY = "sk-02d861ee80d649efa40e69d0e771b4fc"   # ← ТВОЙ НОВЫЙ КЛЮЧ
 
-MODEL = "deepseek-v4-flash"   # Самая быстрая и стабильная сейчас
+MODEL = "deepseek-v4-flash"
 
 SYSTEM_PROMPT = """
 Ты — мудрый и empathetic толкователь снов. 
@@ -22,12 +22,7 @@ SYSTEM_PROMPT = """
 
 user_data = {}
 
-# Логирование
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    stream=sys.stdout
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", stream=sys.stdout)
 logger = logging.getLogger(__name__)
 logger.info("🚀 Бот запускается с новым ключом...")
 
@@ -38,7 +33,6 @@ client = OpenAI(
 
 
 async def call_deepseek_with_retry(messages, max_retries=5):
-    """Умные повторы при rate limit"""
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
@@ -51,21 +45,20 @@ async def call_deepseek_with_retry(messages, max_retries=5):
             return response.choices[0].message.content.strip()
         except RateLimitError:
             wait = (2 ** attempt) * 2.5 + uniform(0.5, 2.5)
-            logger.warning(f"Rate limit. Ждём {wait:.1f} сек (попытка {attempt+1}/{max_retries})")
+            logger.warning(f"Rate limit → ждём {wait:.1f}с")
             await asyncio.sleep(wait)
         except APIError as e:
-            error_str = str(e).lower()
-            if "429" in error_str or "rate limit" in error_str:
+            if "429" in str(e) or "rate limit" in str(e).lower():
                 wait = (2 ** attempt) * 3
-                logger.warning(f"429 ошибка → ждём {wait} сек")
+                logger.warning(f"429 → ждём {wait}с")
                 await asyncio.sleep(wait)
             else:
                 logger.error(f"API Error: {e}")
                 await asyncio.sleep(3)
         except Exception as e:
-            logger.error(f"Неизвестная ошибка: {e}")
+            logger.error(f"Ошибка: {e}")
             await asyncio.sleep(2 ** attempt)
-    raise Exception("DeepSeek не ответил после всех попыток")
+    raise Exception("Не удалось получить ответ")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -74,7 +67,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Привет! Я толкователь снов.\n\n"
         "Расскажи свой сон подробно ✨\n"
-        "После толкования можешь задавать вопросы по нему."
+        "После толкования можешь задавать вопросы."
     )
 
 
@@ -91,15 +84,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"Расскажи сон: {text}"}
             ]
-            is_new_dream = True
+            is_new = True
         else:
             user_data[chat_id]["history"].append({"role": "user", "content": text})
             messages = user_data[chat_id]["history"]
-            is_new_dream = False
+            is_new = False
 
         answer = await call_deepseek_with_retry(messages)
 
-        if is_new_dream:
+        if is_new:
             user_data[chat_id] = {
                 "mode": "dream_mode",
                 "history": messages + [{"role": "assistant", "content": answer}]
@@ -112,16 +105,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply)
 
     except Exception as e:
-        logger.error(f"Ошибка обработки: {e}")
-        await update.message.reply_text(
-            "⏳ DeepSeek сейчас загружен.\nПодожди 15–25 секунд и попробуй снова."
-        )
+        logger.error(f"Ошибка: {e}")
+        await update.message.reply_text("⏳ DeepSeek сейчас загружен. Подожди 15–25 секунд и попробуй снова.")
 
 
 async def new_dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_data[chat_id] = {"mode": "waiting", "history": []}
-    await update.message.reply_text("🆕 Новый сон активирован! Расскажи, что приснилось ✨")
+    await update.message.reply_text("🆕 Новый сон! Расскажи, что приснилось ✨")
 
 
 def main():
