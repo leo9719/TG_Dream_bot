@@ -1,7 +1,5 @@
 import os
 import asyncio
-import subprocess
-import tempfile
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
@@ -12,92 +10,86 @@ import yt_dlp
 
 load_dotenv()
 
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv(BOT_TOKEN)
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-DOWNLOAD_DIR = "downloads"
+DOWNLOAD_DIR = downloads
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
 @dp.message(CommandStart())
-async def start(message: Message):
-    await message.answer(
-        "Привет! Отправь ссылку на видео "
-        "(TikTok / YouTube / Instagram / Shorts)"
-    )
+async def start(message Message)
+    await message.answer(Привет! Отправь ссылку на видео (TikTok  YouTube  Instagram  Shorts))
 
 
-def download_video(url: str):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ydl_opts = {
-            "outtmpl": f"{tmpdir}/%(title)s.%(ext)s",
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
-            "noplaylist": True,
-            "quiet": True,
-            "merge_output_format": "mp4",
-        }
+def download_video(url str)
+    ydl_opts = {
+        outtmpl f{DOWNLOAD_DIR}%(title)s.%(ext)s,
+        format best[ext=mp4]best,           # ← главное изменение
+        noplaylist True,
+        quiet True,
+        no_warnings True,
+    }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            downloaded_file = Path(ydl.prepare_filename(info))
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl
+        info = ydl.extract_info(url, download=True)
+        file_path = ydl.prepare_filename(info)
 
-        final_file = Path(DOWNLOAD_DIR) / f"{downloaded_file.stem}_fixed.mp4"
+    # Простая попытка исправить растяжение (если ffmpeg есть)
+    try
+        fixed_path = str(Path(file_path).with_name(Path(file_path).stem + _fixed.mp4))
+        import subprocess
+        subprocess.run([
+            ffmpeg, -y, -i, file_path,
+            -c, copy, -metadatasv0, rotate=0,
+            fixed_path
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+        
+        if os.path.exists(fixed_path) and os.path.getsize(fixed_path)  10000
+            os.remove(file_path)
+            return fixed_path
+    except
+        pass
 
-        # Исправляем растяжение видео
-        try:
-            subprocess.run([
-                "ffmpeg", "-y",
-                "-i", str(downloaded_file),
-                "-c", "copy",
-                "-metadata:s:v:0", "rotate=0",
-                "-aspect", "auto",
-                str(final_file)
-            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            return str(final_file)
-        except Exception:
-            # Если ffmpeg не найден — отправляем как есть
-            print("FFmpeg не найден, отправляем оригинал")
-            return str(downloaded_file)
+    return file_path
 
 
 @dp.message(F.text)
-async def downloader(message: Message):
+async def downloader(message Message)
     url = message.text.strip()
+    if not url.startswith(http)
+        return await message.answer(Отправь нормальную ссылку на видео.)
 
-    if not url.startswith("http"):
-        await message.answer("Отправь нормальную ссылку на видео.")
-        return
+    wait = await message.answer(Скачиваю видео... ⏳)
 
-    wait_message = await message.answer("Скачиваю видео... ⏳")
-
-    try:
+    try
         file_path = await asyncio.to_thread(download_video, url)
-
-        video = FSInputFile(file_path)
-
-        await message.answer_video(video, supports_streaming=True)
+        
+        await message.answer_video(
+            FSInputFile(file_path),
+            supports_streaming=True
+        )
+        
+        await wait.delete()
 
         # Очистка
-        for f in [file_path, str(Path(file_path).with_suffix(''))]:
-            try:
-                if os.path.exists(f):
+        for f in [file_path]
+            try
+                if os.path.exists(f)
                     os.remove(f)
-            except:
+            except
                 pass
 
-        await wait_message.delete()
-
-    except Exception as e:
-        await wait_message.edit_text(f"Ошибка: {str(e)}")
+    except Exception as e
+        await wait.edit_text(fОшибка {str(e)[250]})
 
 
-async def main():
-    print("Bot started ✅")
+async def main()
+    print(Bot started ✅)
     await dp.start_polling(bot)
 
 
-if __name__ == "__main__":
+if __name__ == __main__
     asyncio.run(main())
