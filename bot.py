@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import sys
-import time
+from random import uniform
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -10,26 +10,26 @@ from openai import OpenAI, APIError, RateLimitError
 
 # ========================= НАСТРОЙКИ =========================
 TOKEN = os.getenv("TOKEN")
-DEEPSEEK_API_KEY = "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"
+DEEPSEEK_API_KEY = "sk-02d861ee80d649efa40e69d0e771b4fc"   # ← Твой новый ключ
 
-MODEL = "deepseek-v4-flash"   # ← Рекомендуемая сейчас модель
+MODEL = "deepseek-v4-flash"   # Самая быстрая и стабильная сейчас
 
 SYSTEM_PROMPT = """
 Ты — мудрый и empathetic толкователь снов. 
-Отвечай интересно, но не длинно (6-8 предложений).
+Отвечай интересно, но не длинно (5-8 предложений).
 Эмодзи используй умеренно.
 """
 
-user_data = {}   # {chat_id: {"mode": "...", "history": [...] }}
+user_data = {}
 
-# ==================== ЛОГИРОВАНИЕ ====================
+# Логирование
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 Бот запускается...")
+logger.info("🚀 Бот запускается с новым ключом...")
 
 client = OpenAI(
     api_key=DEEPSEEK_API_KEY,
@@ -37,10 +37,40 @@ client = OpenAI(
 )
 
 
+async def call_deepseek_with_retry(messages, max_retries=5):
+    """Умные повторы при rate limit"""
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                temperature=0.75,
+                max_tokens=700,
+                timeout=30
+            )
+            return response.choices[0].message.content.strip()
+        except RateLimitError:
+            wait = (2 ** attempt) * 2.5 + uniform(0.5, 2.5)
+            logger.warning(f"Rate limit. Ждём {wait:.1f} сек (попытка {attempt+1}/{max_retries})")
+            await asyncio.sleep(wait)
+        except APIError as e:
+            error_str = str(e).lower()
+            if "429" in error_str or "rate limit" in error_str:
+                wait = (2 ** attempt) * 3
+                logger.warning(f"429 ошибка → ждём {wait} сек")
+                await asyncio.sleep(wait)
+            else:
+                logger.error(f"API Error: {e}")
+                await asyncio.sleep(3)
+        except Exception as e:
+            logger.error(f"Неизвестная ошибка: {e}")
+            await asyncio.sleep(2 ** attempt)
+    raise Exception("DeepSeek не ответил после всех попыток")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_data[chat_id] = {"mode": "waiting", "history": []}
-    logger.info(f"Новый пользователь: {chat_id}")
     await update.message.reply_text(
         "👋 Привет! Я толкователь снов.\n\n"
         "Расскажи свой сон подробно ✨\n"
@@ -51,12 +81,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     text = update.message.text.strip()
-    logger.info(f"📨 От {chat_id}: {text[:70]}...")
+    logger.info(f"📨 Сообщение от {chat_id}")
 
     await update.message.chat.send_action("typing")
 
     try:
-        # Формируем сообщения
         if user_data.get(chat_id, {}).get("mode") == "waiting" or chat_id not in user_data:
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -68,44 +97,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             messages = user_data[chat_id]["history"]
             is_new_dream = False
 
-        # Запрос к DeepSeek
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            temperature=0.75,
-            max_tokens=700,
-            timeout=30
-        )
+        answer = await call_deepseek_with_retry(messages)
 
-        answer = response.choices[0].message.content.strip()
-
-        # Сохраняем историю
         if is_new_dream:
             user_data[chat_id] = {
                 "mode": "dream_mode",
                 "history": messages + [{"role": "assistant", "content": answer}]
             }
-            reply_text = answer + "\n\nТеперь можешь задавать вопросы по этому сну.\n/new — новый сон"
+            reply = answer + "\n\nТеперь можешь задавать вопросы по этому сну.\n/new — новый сон"
         else:
             user_data[chat_id]["history"].append({"role": "assistant", "content": answer})
-            reply_text = answer
+            reply = answer
 
-        await update.message.reply_text(reply_text)
+        await update.message.reply_text(reply)
 
-    except RateLimitError:
-        logger.warning("Rate limit сработал")
-        await update.message.reply_text(
-            "⏳ Лимит запросов DeepSeek.\nПодожди 15–20 секунд и попробуй снова."
-        )
-    except APIError as e:
-        logger.error(f"API Error: {e}")
-        if "429" in str(e):
-            await update.message.reply_text("⏳ Слишком много запросов. Подожди 20 секунд.")
-        else:
-            await update.message.reply_text("😔 Ошибка API. Попробуй через 10 секунд.")
     except Exception as e:
-        logger.error(f"Неизвестная ошибка: {e}", exc_info=True)
-        await update.message.reply_text("😔 Что-то пошло не так. Попробуй ещё раз через минуту.")
+        logger.error(f"Ошибка обработки: {e}")
+        await update.message.reply_text(
+            "⏳ DeepSeek сейчас загружен.\nПодожди 15–25 секунд и попробуй снова."
+        )
 
 
 async def new_dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -115,9 +125,7 @@ async def new_dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    logger.info("Запуск Telegram Bot...")
     app = Application.builder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("new", new_dream))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -127,9 +135,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Бот остановлен вручную.")
-    except Exception as e:
-        logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА: {e}", exc_info=True)
+    asyncio.run(main())
