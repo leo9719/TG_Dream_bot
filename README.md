@@ -1,34 +1,8 @@
-
 # HD SaveAsBot Clone
+
+Бот для скачивания видео из TikTok, YouTube и Instagram без водяных знаков.
 
 ## Установка
 
 ```bash
 pip install -r requirements.txt
-```
-
-Установи ffmpeg.
-
-Windows:
-```bash
-winget install ffmpeg
-```
-
-Ubuntu:
-```bash
-sudo apt install ffmpeg
-```
-
-## Запуск
-
-Создай .env:
-
-```env
-BOT_TOKEN=YOUR_TOKEN
-```
-
-Запуск:
-
-```bash
-python bot.py
-```
