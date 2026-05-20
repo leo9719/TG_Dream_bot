@@ -1,4 +1,3 @@
-
 import os
 import asyncio
 from aiogram import Bot, Dispatcher, F
@@ -29,14 +28,9 @@ async def start(message: Message):
 def download_video(url: str):
     ydl_opts = {
         "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
-        "format": "bestvideo+bestaudio/best",
-        "merge_output_format": "mp4",
+        "format": "best",
         "noplaylist": True,
         "quiet": True,
-        "postprocessors": [{
-            "key": "FFmpegVideoConvertor",
-            "preferedformat": "mp4",
-        }],
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
