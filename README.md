@@ -1,14 +1,5 @@
 
-# SaveAsBot Clone
-
-Telegram-бот для скачивания видео/аудио через yt-dlp.
-
-## Возможности
-- TikTok
-- YouTube
-- Instagram Reels
-- Отправка видео обратно в Telegram
-- Автоочистка файлов
+# HD SaveAsBot Clone
 
 ## Установка
 
@@ -16,16 +7,27 @@ Telegram-бот для скачивания видео/аудио через yt-
 pip install -r requirements.txt
 ```
 
+Установи ffmpeg.
+
+Windows:
+```bash
+winget install ffmpeg
+```
+
+Ubuntu:
+```bash
+sudo apt install ffmpeg
+```
+
 ## Запуск
 
-1. Создай бота через BotFather
-2. Вставь токен в `.env`
+Создай .env:
 
 ```env
 BOT_TOKEN=YOUR_TOKEN
 ```
 
-3. Запусти:
+Запуск:
 
 ```bash
 python bot.py
