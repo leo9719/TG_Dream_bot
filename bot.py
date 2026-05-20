@@ -28,23 +28,35 @@ async def start(message: Message):
 def download_video(url: str):
     ydl_opts = {
         "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
-        "format": "bestvideo+bestaudio/best",   # Лучшее качество
-        "merge_output_format": "mp4",
+        
+        # Самый надёжный вариант без слияния форматов
+        "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+        
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        
+        # Защита от merge
+        "merge_output_format": None,
+        "postprocessors": [],
+        
+        # Дополнительные настройки для совместимости
+        "prefer_free_formats": True,
+        "format_sort": ["ext:mp4", "vcodec:h264", "res"],
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         filename = ydl.prepare_filename(info)
 
+        # Ищем подходящий файл
         base = os.path.splitext(filename)[0]
-        mp4_file = base + ".mp4"
-        if os.path.exists(mp4_file):
-            filename = mp4_file
+        for ext in [".mp4", ".webm", ".mkv", ""]:
+            candidate = base + ext
+            if os.path.exists(candidate):
+                return candidate
 
-        return filename
+        raise Exception("Файл не найден после скачивания")
 
 
 @dp.message(F.text)
@@ -61,7 +73,7 @@ async def downloader(message: Message):
         file_path = await asyncio.to_thread(download_video, url)
 
         if not os.path.exists(file_path):
-            raise Exception("Файл не найден")
+            raise Exception("Файл не скачался")
 
         video = FSInputFile(file_path)
 
@@ -78,7 +90,10 @@ async def downloader(message: Message):
         await wait_message.delete()
 
     except Exception as e:
-        await wait_message.edit_text(f"❌ Ошибка: {str(e)}")
+        error_msg = str(e)
+        if "ffmpeg" in error_msg.lower() or "merging" in error_msg.lower():
+            error_msg = "Сервер не поддерживает ffmpeg. Попробуй позже."
+        await wait_message.edit_text(f"❌ Ошибка: {error_msg}")
 
 
 async def main():
