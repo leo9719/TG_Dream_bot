@@ -38,7 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ========================= LANGUAGES =========================
-user_language = {}  # user_id → 'ru' or 'en'
+user_language = {}
 
 TEXTS = {
     'ru': {
