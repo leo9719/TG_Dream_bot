@@ -31,20 +31,37 @@ user_language = {}
 user_stats = {}
 user_cooldowns = {}
 
-# Простые тексты
+# ========================= TEXTS =========================
 def get_text(user_id, key):
     lang = user_language.get(user_id, 'ru')
-    texts = {
-        'ru': {
-            'start': "👋 Выберите язык:",
-            'welcome': "Отправь ссылку на видео или фото.",
-        },
-        'en': {
-            'start': "👋 Choose language:",
-            'welcome': "Send link to video or photo.",
-        }
+    ru = {
+        'start': "👋 Выберите язык:",
+        'welcome': "Отправь ссылку на видео или фото.",
+        'downloading': "⬇️ Скачиваю...",
+        'done': "✅ Готово!",
+        'error': "❌ Не удалось скачать."
     }
-    return texts[lang].get(key, texts['ru'].get(key))
+    en = {
+        'start': "👋 Choose language:",
+        'welcome': "Send link to video or photo.",
+        'downloading': "⬇️ Downloading...",
+        'done': "✅ Done!",
+        'error': "❌ Failed to download."
+    }
+    return ru[key] if lang == 'ru' else en[key]
+
+# ========================= DOWNLOAD =========================
+async def download_media(url, output_dir, status_message):
+    ydl_opts = {
+        "outtmpl": str(output_dir / "%(title)s.%(ext)s"),
+        "format": "best[height<=1080]",
+        "retries": 3,
+        "quiet": False,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return ydl.prepare_filename(info)
 
 # ========================= HANDLERS =========================
 @dp.message(CommandStart())
@@ -57,13 +74,26 @@ async def start(message: Message):
 
 @dp.callback_query(F.data.startswith("lang_"))
 async def set_lang(callback: CallbackQuery):
-    lang = callback.data.split("_")[1]
-    user_language[callback.from_user.id] = lang
+    user_language[callback.from_user.id] = callback.data.split("_")[1]
     await callback.message.edit_text(get_text(callback.from_user.id, 'welcome'))
 
 @dp.message(F.text)
 async def handle_url(message: Message):
-    await message.answer("Бот работает. Скоро добавлю скачивание.")
+    user_id = message.from_user.id
+    url = message.text.strip()
+
+    status = await message.answer(get_text(user_id, 'downloading'))
+
+    user_folder = BASE_DOWNLOAD_DIR / str(user_id)
+    user_folder.mkdir(parents=True, exist_ok=True)
+
+    try:
+        file_path = await asyncio.to_thread(download_media, url, user_folder, status)
+        await message.answer_document(FSInputFile(file_path), caption=get_text(user_id, 'done'))
+        await status.delete()
+    except Exception as e:
+        logger.error(e)
+        await status.edit_text(get_text(user_id, 'error'))
 
 async def main():
     logger.info("🚀 Bot started")
