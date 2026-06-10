@@ -84,8 +84,7 @@ def check_cookies():
 def update_ytdlp():
     try:
         logger.info("🔄 Обновляем yt-dlp...")
-        subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], 
-                      capture_output=True, text=True, timeout=60, check=True)
+        subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], capture_output=True, text=True, timeout=60, check=True)
         logger.info("✅ yt-dlp успешно обновлён")
     except Exception as e:
         logger.warning(f"Не удалось обновить yt-dlp: {e}")
@@ -177,10 +176,7 @@ async def start(message: Message):
 async def set_language(callback: CallbackQuery):
     lang = callback.data.split("_")[1]
     user_language[callback.from_user.id] = lang
-    await callback.message.edit_text(
-        get_text(callback.from_user.id, 'welcome'),
-        parse_mode="HTML"
-    )
+    await callback.message.edit_text(get_text(callback.from_user.id, 'welcome'), parse_mode="HTML")
 
 
 @dp.message(F.text)
@@ -224,7 +220,7 @@ async def handle_url(message: Message):
 async def main():
     update_ytdlp()
     check_cookies()
-    logger.info("🚀 SaveReelBot запущен с выбором языка!")
+    logger.info("🚀 SaveReelBot запущен!")
     await dp.start_polling(bot)
 
 
