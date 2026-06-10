@@ -4,13 +4,14 @@ import shutil
 import asyncio
 import logging
 import subprocess
+import time  # ← Добавили этот импорт
 from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, FSInputFile
 import yt_dlp
 
 # ========================= CONFIG =========================
@@ -139,7 +140,8 @@ async def start(message: Message):
     cookies_status = "✅ Cookies активны" if os.path.exists(COOKIES_FILE) else "⚠️ Cookies не найдены"
     await message.answer(
         f"👋 <b>SaveReelBot</b>\n\n"
-        f"Отправь ссылку на видео/фото из Instagram, TikTok или YouTube.\n\n"
+        f"Отправь ссылку на видео/фото.\n"
+        f"Поддержка: Instagram, TikTok, YouTube\n\n"
         f"{cookies_status}",
         parse_mode="HTML"
     )
@@ -147,11 +149,10 @@ async def start(message: Message):
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
     await message.answer(
-        "📋 <b>Команды бота:</b>\n\n"
-        "/start — главное меню\n"
-        "/help — эта справка\n"
-        "/stats — статистика\n\n"
-        "Просто кидай ссылку — бот всё скачает.",
+        "📋 <b>Как пользоваться:</b>\n\n"
+        "• Просто отправь ссылку\n"
+        "• Поддерживаются Reels, Stories, Highlights, карусели\n"
+        "• Лимит — 30 файлов в сутки",
         parse_mode="HTML"
     )
 
