@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 import os
-import re
-import time
 import shutil
 import asyncio
 import logging
@@ -20,7 +18,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN not found in .env file")
 
-MAX_VIDEO_SIZE = 400 * 1024 * 1024   # 400 МБ
+MAX_VIDEO_SIZE = 400 * 1024 * 1024
 MAX_DURATION = 25 * 60
 COOLDOWN_SECONDS = 6
 DAILY_LIMIT = 30
@@ -38,7 +36,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ========================= BOT =========================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -47,22 +44,26 @@ BASE_DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 user_stats = {}
 user_cooldowns = {}
-user_last_activity = {}
 
-# ========================= AUTO UPDATE yt-dlp =========================
+# ========================= UTILS =========================
+def check_cookies():
+    if os.path.exists(COOKIES_FILE):
+        size = os.path.getsize(COOKIES_FILE) / 1024
+        logger.info(f"✅ Cookies Instagram найдены ({size:.1f} KB)")
+        return True
+    else:
+        logger.warning("⚠️ Файл cookies.txt не найден")
+        return False
+
 def update_ytdlp():
     try:
         logger.info("🔄 Обновляем yt-dlp...")
-        result = subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], 
-                              capture_output=True, text=True, timeout=60)
-        if result.returncode == 0:
-            logger.info("✅ yt-dlp успешно обновлён")
-        else:
-            logger.warning("⚠️ Не удалось обновить yt-dlp")
+        subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], 
+                      capture_output=True, text=True, timeout=60, check=True)
+        logger.info("✅ yt-dlp успешно обновлён")
     except Exception as e:
-        logger.error(f"Ошибка обновления yt-dlp: {e}")
+        logger.warning(f"Не удалось обновить yt-dlp: {e}")
 
-# ========================= HELPERS =========================
 def is_allowed_url(url: str) -> bool:
     try:
         host = urlparse(url).netloc.lower()
@@ -126,37 +127,31 @@ async def download_media(url: str, output_dir: Path, status_message: Message, is
                 return ydl.prepare_filename(info)
 
         except Exception as e:
-            logger.warning(f"Попытка {attempt}/{MAX_DOWNLOAD_ATTEMPTS} failed: {e}")
+            logger.warning(f"Попытка {attempt} failed: {e}")
             if attempt < MAX_DOWNLOAD_ATTEMPTS:
                 await asyncio.sleep(3)
             else:
                 raise
 
-# ========================= MENU =========================
-main_menu = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="📥 Как пользоваться", callback_data="help")],
-    [InlineKeyboardButton(text="📊 Моя статистика", callback_data="stats")],
-])
-
 # ========================= HANDLERS =========================
 @dp.message(CommandStart())
 async def start(message: Message):
+    cookies_status = "✅ Cookies активны" if os.path.exists(COOKIES_FILE) else "⚠️ Cookies не найдены"
     await message.answer(
-        "👋 <b>Добро пожаловать в SaveReelBot!</b>\n\n"
-        "Отправь ссылку на видео или пост из Instagram, TikTok или YouTube.\n"
-        "Поддерживаются Reels, Stories, Highlights, карусели и аудио.",
-        parse_mode="HTML",
-        reply_markup=main_menu
+        f"👋 <b>SaveReelBot</b>\n\n"
+        f"Отправь ссылку на видео/фото из Instagram, TikTok или YouTube.\n\n"
+        f"{cookies_status}",
+        parse_mode="HTML"
     )
 
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
     await message.answer(
-        "📋 <b>Как пользоваться:</b>\n\n"
-        "• Просто отправь ссылку\n"
-        "• Бот автоматически определит тип контента\n"
-        "• Лимит — 30 файлов в сутки\n"
-        "• Cookies Instagram улучшают скачивание приватных постов",
+        "📋 <b>Команды бота:</b>\n\n"
+        "/start — главное меню\n"
+        "/help — эта справка\n"
+        "/stats — статистика\n\n"
+        "Просто кидай ссылку — бот всё скачает.",
         parse_mode="HTML"
     )
 
@@ -166,27 +161,25 @@ async def stats(message: Message):
     count = user_stats.get(user_id, {}).get("count", 0)
     await message.answer(f"📊 Скачано сегодня: <b>{count}</b> / {DAILY_LIMIT}", parse_mode="HTML")
 
-# ========================= MAIN =========================
 @dp.message(F.text)
 async def handle_url(message: Message):
     user_id = message.from_user.id
     url = message.text.strip()
 
     if not check_rate_limit(user_id):
-        return await message.answer("⏳ Слишком часто. Подожди немного.")
+        return await message.answer("⏳ Подожди 6 секунд между запросами.")
     if not check_daily_limit(user_id):
-        return await message.answer("⛔️ Дневной лимит (30) исчерпан.")
+        return await message.answer("⛔️ Дневной лимит 30 скачиваний исчерпан.")
 
     if not is_allowed_url(url):
         return await message.answer("❌ Поддерживаются только Instagram, TikTok, YouTube.")
 
-    status = await message.answer("⏳ Проверяю ссылку...")
+    status = await message.answer("⏳ Проверяю...")
 
     user_folder = get_user_folder(user_id)
 
     try:
         is_audio = any(x in url.lower() for x in ["music", "audio", "mp3", "song", "песня", "музыка"])
-
         file_path = await download_media(url, user_folder, status, is_audio)
 
         user_stats[user_id]["count"] += 1
@@ -199,17 +192,19 @@ async def handle_url(message: Message):
         await status.delete()
 
     except Exception as e:
-        logger.error(f"User {user_id} error: {e}")
+        logger.error(f"Error user {user_id}: {e}")
         await status.edit_text("❌ Не удалось скачать. Попробуй другую ссылку.")
 
     finally:
         cleanup_folder(user_folder)
 
+
 async def main():
     update_ytdlp()
     check_cookies()
-    logger.info("🚀 SaveReelBot запущен (улучшенная версия)")
+    logger.info("🚀 SaveReelBot успешно запущен!")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
