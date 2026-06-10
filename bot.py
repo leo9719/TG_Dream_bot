@@ -16,7 +16,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN not found")
 
-# ========================= LOGGING =========================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -28,7 +27,6 @@ BASE_DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 user_language = {}
 
-# ========================= TEXTS =========================
 def get_text(user_id, key):
     lang = user_language.get(user_id, 'ru')
     texts = {
@@ -37,26 +35,29 @@ def get_text(user_id, key):
             'welcome': "Отправь ссылку — бот скачает.",
             'downloading': "⬇️ Скачиваю...",
             'done': "✅ Готово!",
-            'error': "❌ Не удалось скачать."
+            'error': "❌ Не удалось скачать. Попробуй другую ссылку."
         },
         'en': {
             'start': "👋 Choose language:",
             'welcome': "Send link — bot will download.",
             'downloading': "⬇️ Downloading...",
             'done': "✅ Done!",
-            'error': "❌ Failed to download."
+            'error': "❌ Failed to download. Try another link."
         }
     }
     return texts[lang].get(key, texts['ru'].get(key))
 
-# ========================= DOWNLOAD =========================
+# ========================= IMPROVED DOWNLOAD =========================
 def sync_download(url, output_dir):
     ydl_opts = {
         "outtmpl": str(output_dir / "%(title)s.%(ext)s"),
-        "format": "best[height<=1080]",
-        "retries": 3,
+        "format": "best[height<=1080]/best[height<=720]/best",  # Более гибкий формат
+        "retries": 5,
         "quiet": False,
+        "no_warnings": True,
+        "extractor_args": {"instagram": {"login": False}},
     }
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         return ydl.prepare_filename(info)
@@ -85,14 +86,20 @@ async def handle_url(message: Message):
 
     try:
         file_path = await asyncio.to_thread(sync_download, url, user_folder)
-        await message.answer_document(FSInputFile(file_path), caption=get_text(message.from_user.id, 'done'))
+        
+        if file_path.endswith('.mp3'):
+            await message.answer_audio(FSInputFile(file_path), caption=get_text(message.from_user.id, 'done'))
+        else:
+            await message.answer_document(FSInputFile(file_path), caption=get_text(message.from_user.id, 'done'))
+        
         await status.delete()
+
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Download error: {e}")
         await status.edit_text(get_text(message.from_user.id, 'error'))
 
 async def main():
-    logger.info("🚀 Bot started")
+    logger.info("🚀 SaveReelBot запущен")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
