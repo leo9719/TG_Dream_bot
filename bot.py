@@ -176,7 +176,7 @@ async def start(message: Message):
 async def language_callback(callback: CallbackQuery):
     lang = callback.data.split("_")[1]
     user_language[callback.from_user.id] = lang
-    # Теперь используем правильный язык после выбора
+    # Исправлено: теперь использует выбранный язык
     await callback.message.edit_text(
         get_text(callback.from_user.id, 'welcome'),
         parse_mode="HTML"
