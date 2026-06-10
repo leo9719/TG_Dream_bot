@@ -84,8 +84,7 @@ def check_cookies():
 def update_ytdlp():
     try:
         logger.info("🔄 Обновляем yt-dlp...")
-        subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], 
-                      capture_output=True, text=True, timeout=60, check=True)
+        subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], capture_output=True, text=True, timeout=60, check=True)
         logger.info("✅ yt-dlp успешно обновлён")
     except Exception as e:
         logger.warning(f"Не удалось обновить yt-dlp: {e}")
@@ -151,7 +150,6 @@ async def download_media(url: str, output_dir: Path, status_message: Message, is
             if is_audio:
                 ydl_opts.update({"format": "bestaudio/best", "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]})
             else:
-                # Самый стабильный формат для Instagram
                 ydl_opts.update({"format": "bv*[height<=1080]+ba/b[height<=1080]/best"})
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -178,6 +176,7 @@ async def start(message: Message):
 async def language_callback(callback: CallbackQuery):
     lang = callback.data.split("_")[1]
     user_language[callback.from_user.id] = lang
+    # Теперь используем правильный язык после выбора
     await callback.message.edit_text(
         get_text(callback.from_user.id, 'welcome'),
         parse_mode="HTML"
