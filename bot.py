@@ -36,14 +36,10 @@ COOKIES_FILE = "cookies.txt"
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("bot.log", encoding="utf-8"),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.FileHandler("bot.log", encoding="utf-8"), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
 
-# ========================= BOT =========================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -60,7 +56,7 @@ def check_cookies():
         logger.info(f"✅ Cookies Instagram найдены ({size:.1f} KB)")
         return True
     else:
-        logger.warning("⚠️ Файл cookies.txt НЕ найден! Instagram будет работать хуже.")
+        logger.warning("⚠️ cookies.txt не найден")
         return False
 
 # ========================= HELPERS =========================
@@ -92,13 +88,32 @@ def get_user_folder(user_id: int) -> Path:
     return folder
 
 def cleanup_folder(folder: Path):
-    shutil.rmtree(folder, ignore_errors=True)
+    try:
+        shutil.rmtree(folder, ignore_errors=True)
+    except Exception as e:
+        logger.error(f"Cleanup error: {e}")
 
-# ========================= DOWNLOAD =========================
-def download_media(url: str, output_dir: Path, is_audio: bool = False):
+# ========================= DOWNLOAD WITH PROGRESS =========================
+async def download_media(url: str, output_dir: Path, status_message: Message, is_audio: bool = False):
+    last_percent = 0
+
+    def progress_hook(d):
+        nonlocal last_percent
+        if d['status'] == 'downloading':
+            try:
+                percent = float(d['_percent_str'].strip('%'))
+                if percent - last_percent >= 8:  # обновляем каждые ~8%
+                    asyncio.create_task(
+                        status_message.edit_text(f"⬇️ Скачиваю... {percent:.1f}%")
+                    )
+                    last_percent = percent
+            except:
+                pass
+
     ydl_opts = {
         "outtmpl": str(output_dir / "%(title)s.%(ext)s"),
         "quiet": False,
+        "progress_hooks": [progress_hook],
         "retries": 5,
         "socket_timeout": 40,
     }
@@ -127,10 +142,24 @@ async def start(message: Message):
     cookies_status = "✅ Cookies Instagram активны" if os.path.exists(COOKIES_FILE) else "⚠️ Cookies не найдены"
     await message.answer(
         f"<b>SaveReelBot</b>\n\n"
-        f"Отправь ссылку на пост из Instagram, TikTok или YouTube.\n"
-        f"Поддержка: видео • фото • карусели • MP3\n\n"
-        f"{cookies_status}\n"
-        f"Лимит: 30 скачиваний в сутки.",
+        f"Отправь ссылку на пост.\n"
+        f"Поддержка: видео, фото, карусели, Stories, Highlights, MP3\n\n"
+        f"{cookies_status}\nЛимит: 30 скачиваний в сутки.",
+        parse_mode="HTML"
+    )
+
+@dp.message(Command("help"))
+async def help_cmd(message: Message):
+    await message.answer(
+        "<b>Как пользоваться ботом:</b>\n\n"
+        "• Просто отправь ссылку\n"
+        "• Поддерживаются Reels, Shorts, TikTok, Stories, Highlights\n"
+        "• Для аудио — бот определит автоматически\n"
+        "• Лимит: 30 файлов в сутки\n\n"
+        "Команды:\n"
+        "/start — приветствие\n"
+        "/stats — твоя статистика\n"
+        "/help — эта справка",
         parse_mode="HTML"
     )
 
@@ -138,10 +167,7 @@ async def start(message: Message):
 async def stats(message: Message):
     user_id = message.from_user.id
     count = user_stats.get(user_id, {}).get("count", 0)
-    await message.answer(
-        f"<b>Статистика</b>\nСкачано сегодня: <b>{count}</b> / {DAILY_LIMIT}",
-        parse_mode="HTML"
-    )
+    await message.answer(f"<b>Статистика</b>\nСкачано сегодня: <b>{count}</b> / {DAILY_LIMIT}", parse_mode="HTML")
 
 # ========================= MAIN HANDLER =========================
 @dp.message(F.text)
@@ -150,22 +176,22 @@ async def handle_url(message: Message):
     url = message.text.strip()
 
     if not check_rate_limit(user_id):
-        return await message.answer("⏳ Подожди 8 секунд между запросами.")
+        return await message.answer("⏳ Подожди 8 секунд...")
     if not check_daily_limit(user_id):
-        return await message.answer("⛔️ Дневной лимит (30) исчерпан. Приходи завтра!")
+        return await message.answer("⛔️ Дневной лимит исчерпан.")
 
     if not is_allowed_url(url):
-        return await message.answer("❌ Поддерживаются только Instagram, TikTok, YouTube.")
+        return await message.answer("❌ Только Instagram, TikTok, YouTube.")
 
     status = await message.answer("⏳ Проверяю...")
 
     user_folder = get_user_folder(user_id)
 
     try:
-        is_audio = any(x in url.lower() for x in ["music", "audio", "mp3"])
-        await status.edit_text("⬇️ Скачиваю...")
+        # Улучшенная детекция аудио
+        is_audio = any(x in url.lower() for x in ["music", "audio", "mp3", "song", "песня"])
 
-        file_path = await asyncio.to_thread(download_media, url, user_folder, is_audio)
+        file_path = await download_media(url, user_folder, status, is_audio)
 
         user_stats[user_id]["count"] += 1
 
@@ -175,10 +201,9 @@ async def handle_url(message: Message):
             await message.answer_document(FSInputFile(file_path), caption="✅ Готово! @SaveReelBot")
 
         await status.delete()
-        logger.info(f"User {user_id} downloaded: {url}")
 
     except Exception as e:
-        logger.error(f"Error for user {user_id}: {e}")
+        logger.error(f"Error: {e}")
         error = str(e).lower()
         if any(x in error for x in ["private", "unavailable", "login", "restricted"]):
             await status.edit_text("❌ Контент приватный или недоступен.")
@@ -186,14 +211,12 @@ async def handle_url(message: Message):
             await status.edit_text("❌ Не удалось скачать. Попробуй другую ссылку.")
 
     finally:
-        cleanup_folder(user_folder)
-
+        cleanup_folder(user_folder)  # Автоудаление
 
 async def main():
-    cookies_ok = check_cookies()
-    logger.info("🚀 SaveReelBot запущен!")
+    check_cookies()
+    logger.info("🚀 SaveReelBot запущен с прогресс-баром!")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
