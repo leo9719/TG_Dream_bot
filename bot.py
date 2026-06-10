@@ -30,27 +30,29 @@ ALLOWED_DOMAINS = {"youtube.com", "youtu.be", "instagram.com", "tiktok.com", "vm
 COOKIES_FILE = "cookies.txt"
 
 # ========================= LANGUAGES =========================
-user_language = {}  # user_id: 'ru' or 'en'
+user_language = {}  # user_id → 'ru' или 'en'
 
 TEXTS = {
     'ru': {
         'start': "👋 <b>Добро пожаловать в SaveReelBot!</b>\n\nВыберите язык:",
-        'help': "📋 <b>Как пользоваться:</b>\n\nПросто отправь ссылку на пост.",
+        'welcome': "Отправь ссылку на видео или фото из Instagram, TikTok или YouTube.",
+        'help': "📋 Просто отправь ссылку — бот всё скачает.",
         'stats': "📊 Скачано сегодня: <b>{count}</b> / {limit}",
-        'limit_exceeded': "⛔️ Дневной лимит (30) исчерпан.",
         'too_fast': "⏳ Подожди 6 секунд между запросами.",
+        'limit_exceeded': "⛔️ Дневной лимит 30 скачиваний исчерпан.",
         'unsupported': "❌ Поддерживаются только Instagram, TikTok, YouTube.",
         'downloading': "⬇️ Скачиваю...",
         'done': "✅ Готово!",
         'error': "❌ Не удалось скачать. Попробуй другую ссылку."
     },
     'en': {
-        'start': "👋 <b>Welcome to SaveReelBot!</b>\n\nChoose language:",
-        'help': "📋 <b>How to use:</b>\n\nJust send the link.",
+        'start': "👋 <b>Welcome to SaveReelBot!</b>\n\nChoose your language:",
+        'welcome': "Send a link from Instagram, TikTok or YouTube.",
+        'help': "📋 Just send the link — bot will download it.",
         'stats': "📊 Downloaded today: <b>{count}</b> / {limit}",
-        'limit_exceeded': "⛔️ Daily limit (30) exceeded.",
         'too_fast': "⏳ Please wait 6 seconds between requests.",
-        'unsupported': "❌ Only Instagram, TikTok, YouTube are supported.",
+        'limit_exceeded': "⛔️ Daily limit of 30 downloads exceeded.",
+        'unsupported': "❌ Only Instagram, TikTok, YouTube supported.",
         'downloading': "⬇️ Downloading...",
         'done': "✅ Done!",
         'error': "❌ Failed to download. Try another link."
@@ -89,9 +91,9 @@ def get_text(user_id: int, key: str, **kwargs):
     text = TEXTS[lang].get(key, TEXTS['ru'].get(key, key))
     return text.format(**kwargs)
 
-# ========================= DOWNLOAD (без изменений) =========================
+# ========================= DOWNLOAD FUNCTION (сокращённая) =========================
 async def download_media(url: str, output_dir: Path, status_message: Message, is_audio: bool = False):
-    # ... (оставляем ту же функцию, что была раньше)
+    # ... (оставил ту же логику что раньше)
     for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
         try:
             def progress_hook(d):
@@ -138,30 +140,18 @@ async def start(message: Message):
 
 
 @dp.callback_query(F.data.startswith("lang_"))
-async def language_callback(callback: CallbackQuery):
+async def set_language(callback: CallbackQuery):
     lang = callback.data.split("_")[1]
     user_language[callback.from_user.id] = lang
+    
     await callback.message.edit_text(
-        "✅ Язык успешно установлен!\n\nОтправь ссылку на видео или пост.",
+        get_text(callback.from_user.id, 'welcome'),
         parse_mode="HTML"
     )
 
 
-@dp.message(Command("help"))
-async def help_cmd(message: Message):
-    await message.answer(get_text(message.from_user.id, 'help'), parse_mode="HTML")
-
-
-@dp.message(Command("stats"))
-async def stats(message: Message):
-    user_id = message.from_user.id
-    count = user_stats.get(user_id, {}).get("count", 0)
-    await message.answer(get_text(user_id, 'stats', count=count, limit=DAILY_LIMIT), parse_mode="HTML")
-
-
 @dp.message(F.text)
 async def handle_url(message: Message):
-    # ... (остальная логика handle_url остаётся почти такой же)
     user_id = message.from_user.id
     url = message.text.strip()
 
@@ -196,11 +186,13 @@ async def handle_url(message: Message):
     finally:
         cleanup_folder(user_folder)
 
+
 async def main():
     update_ytdlp()
     check_cookies()
     logger.info("🚀 SaveReelBot запущен с выбором языка!")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
