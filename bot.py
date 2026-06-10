@@ -5,7 +5,10 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message, FSInputFile
 import yt_dlp
 
-TOKEN = "ВСТАВЬ_СВОЙ_ТОКЕН"
+TOKEN = os.getenv("BOT_TOKEN")
+
+if not TOKEN:
+    raise ValueError("BOT_TOKEN not specified")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -49,7 +52,7 @@ async def download_handler(message: Message):
         file_path = await asyncio.to_thread(download_video, url)
 
         if not os.path.exists(file_path):
-            await status.edit_text("❌ Файл не найден после скачивания.")
+            await status.edit_text("❌ Файл не найден.")
             return
 
         video = FSInputFile(file_path)
@@ -61,15 +64,13 @@ async def download_handler(message: Message):
 
         try:
             os.remove(file_path)
-        except:
+        except Exception:
             pass
 
         await status.delete()
 
     except Exception as e:
-        await status.edit_text(
-            f"❌ Ошибка:\n{str(e)}"
-        )
+        await status.edit_text(f"❌ Ошибка:\n{e}")
 
 
 async def main():
