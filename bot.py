@@ -124,7 +124,7 @@ def get_user_folder(user_id: int) -> Path:
 def cleanup_folder(folder: Path):
     shutil.rmtree(folder, ignore_errors=True)
 
-# ========================= DOWNLOAD =========================
+# ========================= DOWNLOAD (исправлено) =========================
 async def download_media(url: str, output_dir: Path, status_message: Message, is_audio: bool = False):
     for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
         try:
@@ -148,9 +148,15 @@ async def download_media(url: str, output_dir: Path, status_message: Message, is
                 ydl_opts["cookiefile"] = COOKIES_FILE
 
             if is_audio:
-                ydl_opts.update({"format": "bestaudio/best", "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]})
+                ydl_opts.update({
+                    "format": "bestaudio/best",
+                    "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]
+                })
             else:
-                ydl_opts.update({"format": "bv*[height<=1080]+ba/b[height<=1080]/best"})
+                # Самый стабильный вариант без сложного merge
+                ydl_opts.update({
+                    "format": "best[height<=1080]/best"
+                })
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -176,7 +182,6 @@ async def start(message: Message):
 async def language_callback(callback: CallbackQuery):
     lang = callback.data.split("_")[1]
     user_language[callback.from_user.id] = lang
-    # Исправлено: теперь использует выбранный язык
     await callback.message.edit_text(
         get_text(callback.from_user.id, 'welcome'),
         parse_mode="HTML"
