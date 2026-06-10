@@ -84,7 +84,8 @@ def check_cookies():
 def update_ytdlp():
     try:
         logger.info("🔄 Обновляем yt-dlp...")
-        subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], capture_output=True, text=True, timeout=60, check=True)
+        subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], 
+                      capture_output=True, text=True, timeout=60, check=True)
         logger.info("✅ yt-dlp успешно обновлён")
     except Exception as e:
         logger.warning(f"Не удалось обновить yt-dlp: {e}")
@@ -150,7 +151,8 @@ async def download_media(url: str, output_dir: Path, status_message: Message, is
             if is_audio:
                 ydl_opts.update({"format": "bestaudio/best", "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]})
             else:
-                ydl_opts.update({"format": f"bestvideo[filesize<{MAX_VIDEO_SIZE//1024//1024}M][height<=1080]/best[height<=1080]/best"})
+                # Самый стабильный формат для Instagram
+                ydl_opts.update({"format": "bv*[height<=1080]+ba/b[height<=1080]/best"})
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -177,7 +179,7 @@ async def language_callback(callback: CallbackQuery):
     lang = callback.data.split("_")[1]
     user_language[callback.from_user.id] = lang
     await callback.message.edit_text(
-        "✅ Язык успешно установлен!\n\nОтправь ссылку на видео или пост.",
+        get_text(callback.from_user.id, 'welcome'),
         parse_mode="HTML"
     )
 
@@ -223,7 +225,7 @@ async def handle_url(message: Message):
 async def main():
     update_ytdlp()
     check_cookies()
-    logger.info("🚀 SaveReelBot запущен с выбором языка!")
+    logger.info("🚀 SaveReelBot запущен!")
     await dp.start_polling(bot)
 
 
