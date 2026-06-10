@@ -5,6 +5,7 @@ import asyncio
 import logging
 import subprocess
 import time
+import random
 from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
@@ -19,9 +20,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN not found in .env file")
 
-MAX_VIDEO_SIZE = 400 * 1024 * 1024
-MAX_DURATION = 25 * 60
-COOLDOWN_SECONDS = 6
+MAX_VIDEO_SIZE = 350 * 1024 * 1024   # чуть снизили
+MAX_DURATION = 20 * 60
+COOLDOWN_SECONDS = 10                # увеличили паузу
 DAILY_LIMIT = 30
 MAX_DOWNLOAD_ATTEMPTS = 3
 
@@ -44,7 +45,7 @@ TEXTS = {
     'ru': {
         'start': "👋 <b>Добро пожаловать в SaveReelBot!</b>\n\nВыберите язык:",
         'welcome': "Отправь ссылку на видео или фото.",
-        'too_fast': "⏳ Подожди 6 секунд между запросами.",
+        'too_fast': "⏳ Подожди немного между запросами.",
         'limit_exceeded': "⛔️ Дневной лимит 30 скачиваний исчерпан.",
         'unsupported': "❌ Поддерживаются только Instagram, TikTok, YouTube.",
         'downloading': "⬇️ Скачиваю...",
@@ -54,7 +55,7 @@ TEXTS = {
     'en': {
         'start': "👋 <b>Welcome to SaveReelBot!</b>\n\nChoose language:",
         'welcome': "Send a link to video or photo.",
-        'too_fast': "⏳ Please wait 6 seconds between requests.",
+        'too_fast': "⏳ Please wait between requests.",
         'limit_exceeded': "⛔️ Daily limit of 30 downloads exceeded.",
         'unsupported': "❌ Only Instagram, TikTok, YouTube supported.",
         'downloading': "⬇️ Downloading...",
@@ -124,8 +125,10 @@ def get_user_folder(user_id: int) -> Path:
 def cleanup_folder(folder: Path):
     shutil.rmtree(folder, ignore_errors=True)
 
-# ========================= DOWNLOAD (исправлено) =========================
+# ========================= DOWNLOAD (с пониженным риском) =========================
 async def download_media(url: str, output_dir: Path, status_message: Message, is_audio: bool = False):
+    await asyncio.sleep(random.uniform(1.5, 3.0))  # случайная задержка
+
     for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
         try:
             def progress_hook(d):
@@ -139,8 +142,8 @@ async def download_media(url: str, output_dir: Path, status_message: Message, is
             ydl_opts = {
                 "outtmpl": str(output_dir / "%(title)s.%(ext)s"),
                 "progress_hooks": [progress_hook],
-                "retries": 5,
-                "socket_timeout": 40,
+                "retries": 4,
+                "socket_timeout": 50,
                 "filesize_limit": MAX_VIDEO_SIZE,
             }
 
@@ -148,23 +151,18 @@ async def download_media(url: str, output_dir: Path, status_message: Message, is
                 ydl_opts["cookiefile"] = COOKIES_FILE
 
             if is_audio:
-                ydl_opts.update({
-                    "format": "bestaudio/best",
-                    "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]
-                })
+                ydl_opts.update({"format": "bestaudio/best", "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]})
             else:
-                # Самый стабильный вариант без сложного merge
-                ydl_opts.update({
-                    "format": "best[height<=1080]/best"
-                })
+                ydl_opts.update({"format": "best[height<=1080]/best"})   # самый безопасный вариант
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 return ydl.prepare_filename(info)
+
         except Exception as e:
             logger.warning(f"Попытка {attempt} failed: {e}")
             if attempt < MAX_DOWNLOAD_ATTEMPTS:
-                await asyncio.sleep(3)
+                await asyncio.sleep(random.uniform(4, 8))
             else:
                 raise
 
@@ -229,7 +227,7 @@ async def handle_url(message: Message):
 async def main():
     update_ytdlp()
     check_cookies()
-    logger.info("🚀 SaveReelBot запущен!")
+    logger.info("🚀 SaveReelBot запущен (режим пониженного риска)")
     await dp.start_polling(bot)
 
 
