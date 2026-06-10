@@ -20,19 +20,15 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN not found in .env file")
 
-MAX_VIDEO_SIZE = 400 * 1024 * 1024
-MAX_DURATION = 25 * 60
-COOLDOWN_SECONDS = 8
+MAX_VIDEO_SIZE = 350 * 1024 * 1024   # чуть снизили
+MAX_DURATION = 20 * 60
+COOLDOWN_SECONDS = 10                # увеличили паузу
 DAILY_LIMIT = 30
 MAX_DOWNLOAD_ATTEMPTS = 3
 
 ALLOWED_DOMAINS = {"youtube.com", "youtu.be", "instagram.com", "tiktok.com", "vm.tiktok.com"}
 
 COOKIES_FILE = "cookies.txt"
-
-# ========================= GLOBAL STATISTICS =========================
-total_users = set()
-total_downloads = 0
 
 # ========================= LOGGING =========================
 logging.basicConfig(
@@ -49,30 +45,22 @@ TEXTS = {
     'ru': {
         'start': "👋 <b>Добро пожаловать в SaveReelBot!</b>\n\nВыберите язык:",
         'welcome': "Отправь ссылку на видео или фото.",
-        'too_fast': "⏳ Подожди 8 секунд между запросами.",
+        'too_fast': "⏳ Подожди немного между запросами.",
         'limit_exceeded': "⛔️ Дневной лимит 30 скачиваний исчерпан.",
         'unsupported': "❌ Поддерживаются только Instagram, TikTok, YouTube.",
         'downloading': "⬇️ Скачиваю...",
         'done': "✅ Готово!",
-        'error': "❌ Не удалось скачать. Попробуй другую ссылку.",
-        'stats': "📊 <b>Статистика бота</b>\n\n"
-                 "Пользователей: <b>{total_users}</b>\n"
-                 "Всего скачиваний: <b>{total_downloads}</b>\n\n"
-                 "Ты скачал сегодня: <b>{count}</b> / {limit}"
+        'error': "❌ Не удалось скачать. Попробуй другую ссылку."
     },
     'en': {
         'start': "👋 <b>Welcome to SaveReelBot!</b>\n\nChoose language:",
         'welcome': "Send a link to video or photo.",
-        'too_fast': "⏳ Please wait 8 seconds between requests.",
+        'too_fast': "⏳ Please wait between requests.",
         'limit_exceeded': "⛔️ Daily limit of 30 downloads exceeded.",
         'unsupported': "❌ Only Instagram, TikTok, YouTube supported.",
         'downloading': "⬇️ Downloading...",
         'done': "✅ Done!",
-        'error': "❌ Failed to download. Try another link.",
-        'stats': "📊 <b>Bot Statistics</b>\n\n"
-                 "Total users: <b>{total_users}</b>\n"
-                 "Total downloads: <b>{total_downloads}</b>\n\n"
-                 "You downloaded today: <b>{count}</b> / {limit}"
+        'error': "❌ Failed to download. Try another link."
     }
 }
 
@@ -137,8 +125,10 @@ def get_user_folder(user_id: int) -> Path:
 def cleanup_folder(folder: Path):
     shutil.rmtree(folder, ignore_errors=True)
 
-# ========================= DOWNLOAD =========================
+# ========================= DOWNLOAD (с пониженным риском) =========================
 async def download_media(url: str, output_dir: Path, status_message: Message, is_audio: bool = False):
+    await asyncio.sleep(random.uniform(1.5, 3.0))  # случайная задержка
+
     for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
         try:
             def progress_hook(d):
@@ -152,8 +142,8 @@ async def download_media(url: str, output_dir: Path, status_message: Message, is
             ydl_opts = {
                 "outtmpl": str(output_dir / "%(title)s.%(ext)s"),
                 "progress_hooks": [progress_hook],
-                "retries": 5,
-                "socket_timeout": 40,
+                "retries": 4,
+                "socket_timeout": 50,
                 "filesize_limit": MAX_VIDEO_SIZE,
             }
 
@@ -163,22 +153,22 @@ async def download_media(url: str, output_dir: Path, status_message: Message, is
             if is_audio:
                 ydl_opts.update({"format": "bestaudio/best", "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]})
             else:
-                ydl_opts.update({"format": "bv*[height<=1080]+ba/b[height<=1080]/best"})
+                ydl_opts.update({"format": "best[height<=1080]/best"})   # самый безопасный вариант
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 return ydl.prepare_filename(info)
+
         except Exception as e:
             logger.warning(f"Попытка {attempt} failed: {e}")
             if attempt < MAX_DOWNLOAD_ATTEMPTS:
-                await asyncio.sleep(random.uniform(3, 7))
+                await asyncio.sleep(random.uniform(4, 8))
             else:
                 raise
 
 # ========================= HANDLERS =========================
 @dp.message(CommandStart())
 async def start(message: Message):
-    total_users.add(message.from_user.id)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")],
         [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en")]
@@ -196,26 +186,10 @@ async def language_callback(callback: CallbackQuery):
     )
 
 
-@dp.message(Command("stats"))
-async def stats(message: Message):
-    user_id = message.from_user.id
-    count = user_stats.get(user_id, {}).get("count", 0)
-    await message.answer(
-        get_text(user_id, 'stats',
-                 count=count,
-                 limit=DAILY_LIMIT,
-                 total_users=len(total_users),
-                 total_downloads=total_downloads),
-        parse_mode="HTML"
-    )
-
-
 @dp.message(F.text)
 async def handle_url(message: Message):
     user_id = message.from_user.id
     url = message.text.strip()
-
-    total_users.add(user_id)
 
     if not check_rate_limit(user_id):
         return await message.answer(get_text(user_id, 'too_fast'))
@@ -233,9 +207,7 @@ async def handle_url(message: Message):
         is_audio = any(x in url.lower() for x in ["music", "audio", "mp3", "song", "песня", "музыка"])
         file_path = await download_media(url, user_folder, status, is_audio)
 
-        user_stats[user_id]["count"] = user_stats.get(user_id, {}).get("count", 0) + 1
-        global total_downloads
-        total_downloads += 1
+        user_stats[user_id]["count"] += 1
 
         if file_path.endswith('.mp3'):
             await message.answer_audio(FSInputFile(file_path), caption=get_text(user_id, 'done'))
@@ -255,7 +227,7 @@ async def handle_url(message: Message):
 async def main():
     update_ytdlp()
     check_cookies()
-    logger.info("🚀 SaveReelBot запущен!")
+    logger.info("🚀 SaveReelBot запущен (режим пониженного риска)")
     await dp.start_polling(bot)
 
 
