@@ -115,4 +115,118 @@ def check_daily_limit(user_id: int) -> bool:
         user_stats[user_id] = {"count": 0, "reset_time": now + timedelta(days=1)}
     if now > user_stats[user_id]["reset_time"]:
         user_stats[user_id] = {"count": 0, "reset_time": now + timedelta(days=1)}
-    return user_stats[user
+    return user_stats[user_id]["count"] < DAILY_LIMIT
+
+def get_user_folder(user_id: int) -> Path:
+    folder = BASE_DOWNLOAD_DIR / str(user_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+def cleanup_folder(folder: Path):
+    shutil.rmtree(folder, ignore_errors=True)
+
+# ========================= DOWNLOAD =========================
+async def download_media(url: str, output_dir: Path, status_message: Message, is_audio: bool = False):
+    for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
+        try:
+            def progress_hook(d):
+                if d['status'] == 'downloading':
+                    try:
+                        percent = float(d.get('_percent_str', '0').strip('%'))
+                        asyncio.create_task(status_message.edit_text(f"⬇️ {get_text(status_message.chat.id, 'downloading')} {percent:.1f}%"))
+                    except:
+                        pass
+
+            ydl_opts = {
+                "outtmpl": str(output_dir / "%(title)s.%(ext)s"),
+                "progress_hooks": [progress_hook],
+                "retries": 5,
+                "socket_timeout": 40,
+                "filesize_limit": MAX_VIDEO_SIZE,
+            }
+
+            if os.path.exists(COOKIES_FILE):
+                ydl_opts["cookiefile"] = COOKIES_FILE
+
+            if is_audio:
+                ydl_opts.update({"format": "bestaudio/best", "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]})
+            else:
+                ydl_opts.update({"format": f"bestvideo[filesize<{MAX_VIDEO_SIZE//1024//1024}M][height<=1080]/best[height<=1080]/best"})
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return ydl.prepare_filename(info)
+        except Exception as e:
+            logger.warning(f"Попытка {attempt} failed: {e}")
+            if attempt < MAX_DOWNLOAD_ATTEMPTS:
+                await asyncio.sleep(3)
+            else:
+                raise
+
+# ========================= HANDLERS =========================
+@dp.message(CommandStart())
+async def start(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")],
+        [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en")]
+    ])
+    await message.answer(get_text(message.from_user.id, 'start'), reply_markup=keyboard, parse_mode="HTML")
+
+
+@dp.callback_query(F.data.startswith("lang_"))
+async def set_language(callback: CallbackQuery):
+    lang = callback.data.split("_")[1]
+    user_language[callback.from_user.id] = lang
+    await callback.message.edit_text(
+        get_text(callback.from_user.id, 'welcome'),
+        parse_mode="HTML"
+    )
+
+
+@dp.message(F.text)
+async def handle_url(message: Message):
+    user_id = message.from_user.id
+    url = message.text.strip()
+
+    if not check_rate_limit(user_id):
+        return await message.answer(get_text(user_id, 'too_fast'))
+    if not check_daily_limit(user_id):
+        return await message.answer(get_text(user_id, 'limit_exceeded'))
+
+    if not is_allowed_url(url):
+        return await message.answer(get_text(user_id, 'unsupported'))
+
+    status = await message.answer(get_text(user_id, 'downloading'))
+
+    user_folder = get_user_folder(user_id)
+
+    try:
+        is_audio = any(x in url.lower() for x in ["music", "audio", "mp3", "song", "песня", "музыка"])
+        file_path = await download_media(url, user_folder, status, is_audio)
+
+        user_stats[user_id]["count"] += 1
+
+        if file_path.endswith('.mp3'):
+            await message.answer_audio(FSInputFile(file_path), caption=get_text(user_id, 'done'))
+        else:
+            await message.answer_document(FSInputFile(file_path), caption=get_text(user_id, 'done'))
+
+        await status.delete()
+
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        await status.edit_text(get_text(user_id, 'error'))
+
+    finally:
+        cleanup_folder(user_folder)
+
+
+async def main():
+    update_ytdlp()
+    check_cookies()
+    logger.info("🚀 SaveReelBot запущен с выбором языка!")
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
